@@ -24,11 +24,12 @@ export async function POST(request: NextRequest) {
     let columnMaps: any = {};
     let filename = "";
     let targetAuditDate = selectedQueryDate || "";
+    let rowCount = 0;
 
     // PATHWAY A: LIVE DATABASE EVALUATION RUN
     if (contentType.includes("application/json")) {
       const body = await request.json();
-      const timeframeType = body.timeframeType;
+      const timeframeType = body.timeframeType ?? "all";
       const timeframeValue = body.timeframeValue;
       const startDate = body.startDate;
       const endDate = body.endDate;
@@ -37,7 +38,21 @@ export async function POST(request: NextRequest) {
 
       let query = supabase.from("scheduler_logs").select("*");
 
-      if (timeframeType === "day" && timeframeValue) {
+      if (timeframeType === "latest") {
+        const { data: latestRows, error: latestError } = await supabase
+          .from("scheduler_logs")
+          .select("run_date")
+          .order("run_date", { ascending: false })
+          .limit(1);
+
+        if (latestError) throw latestError;
+        const latestDate = latestRows?.[0]?.run_date;
+        if (latestDate) {
+          query = supabase.from("scheduler_logs").select("*").eq("run_date", latestDate);
+        } else {
+          query = supabase.from("scheduler_logs").select("*").order("run_date", { ascending: false }).limit(117);
+        }
+      } else if (timeframeType === "day" && timeframeValue) {
         query = query.eq("run_date", timeframeValue);
       } else if ((timeframeType === "week" || timeframeType === "month") && startDate && endDate) {
         query = query.gte("run_date", startDate).lte("run_date", endDate);
@@ -58,6 +73,8 @@ export async function POST(request: NextRequest) {
         data = fallbackQuery.data || [];
         if (fallbackQuery.error) throw fallbackQuery.error;
       }
+
+      rowCount = (data || []).length;
 
       const normalizedRows = (data || []).map((row: any) => {
         let startTime = row.start_time;
@@ -128,6 +145,13 @@ export async function POST(request: NextRequest) {
         sheets["Order_line_item"] = [];
       }
 
+      rowCount = 0;
+      for (const sheet of Object.values(sheets)) {
+        if (Array.isArray(sheet)) {
+          rowCount += sheet.length;
+        }
+      }
+
       if (!targetAuditDate) {
         const oli = sheets["Order_line_item"] ?? [];
         const loadDates = oli.map((r: any) => r["load_date"]).filter(Boolean).map((d: any) => String(d));
@@ -164,12 +188,28 @@ export async function POST(request: NextRequest) {
       analyzedAt: new Date().toISOString(),
       runDate: targetAuditDate || "2026",
       sheetsFound: sheetNames,
+      rowCount,
       summary,
       checks,
       rawSheetsData: sheets, 
     };
 
-    return NextResponse.json(report);
+    // Store report for dashboard viewing
+    const reportId = `report_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    try {
+      await supabase
+        .storage
+        .from('reports')
+        .upload(`${reportId}.json`, JSON.stringify(report), {
+          contentType: 'application/json',
+          upsert: false,
+        });
+      console.log(`✅ Report stored with ID: ${reportId}`);
+    } catch (storageErr) {
+      console.warn("⚠️ Report storage failed, continuing without dashboard link");
+    }
+
+    return NextResponse.json({ ...report, reportId });
   } catch (err: any) {
     console.error("Root analysis framework crash captured:", err);
     return NextResponse.json(
