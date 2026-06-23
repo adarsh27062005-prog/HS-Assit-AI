@@ -25,6 +25,12 @@ export interface SheetData {
   [sheetName: string]: Record<string, unknown>[];
 }
 
+export interface SheetMapping {
+  orderItemSheet?: string;
+  mpcSheet?: string;
+  schedulerSheet?: string;
+}
+
 // Maps a sheet name -> (header name -> Excel column letter), used to build A1 cell refs.
 export type ColumnMaps = Record<string, Record<string, string>>;
 

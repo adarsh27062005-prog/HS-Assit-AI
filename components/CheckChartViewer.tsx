@@ -5,11 +5,13 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis, ReferenceLine
 } from "recharts";
+import type { SheetMapping } from "@/types";
 
 interface ChartViewerProps {
   checkId: string;
   sheets: any; // Raw dynamic sheets data passed from frontend upload state
   check: any;  // Anomaly check payload metadata containing status and issues count
+  sheetMapping?: SheetMapping;
 }
 
 const normalizeSheetKey = (key: string) => String(key).trim().toLowerCase().replace(/[_\s-]+/g, "");
@@ -20,7 +22,7 @@ function sheetHasHeaders(rows: any[], headers: string[]): boolean {
   return headers.some((header) => keys.includes(header.toLowerCase()));
 }
 
-export default function CheckChartViewer({ checkId, sheets, check }: ChartViewerProps) {
+export default function CheckChartViewer({ checkId, sheets, check, sheetMapping }: ChartViewerProps) {
   // Client default is a high-level simplified health snapshot to prevent confusion
   const [viewMode, setViewMode] = useState<"simplified" | "detailed">("simplified");
 
