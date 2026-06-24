@@ -1,10 +1,9 @@
 import type { AnomalyResult, SheetData, AnomalyDetail, ColumnMaps } from "@/types";
 
 const VALID_STEP_CODES = ["post", "cncl", "open"];
-const OLI_NAMES = ["Order_Line_Item", "Order_line_item", "order_line_item", "scheduler_logs"];
+const OLI_NAMES = ["Order_line_item", "Order_Line_Item", "order_line_item", "scheduler_logs"];
 const MPC_NAMES = ["mpc", "MPC"];
 const SCHEDULER_NAMES = ["scheduler_logs", "Scheduler_logs"];
-const TARGET_SCHEDULER = "Step1_Mapping_id&Calc_of_points_OL";
 const MAX_DETAILS = 100;
 
 export interface TimeframeFilter {
@@ -33,7 +32,7 @@ function fmtValue(val: unknown): string | number | null {
 }
 
 function getPrimaryDate(dates: string[]): string {
-  if (!dates.length) return "2026-04-18";
+  if (!dates.length) return "2026-06-23";
   const counts: Record<string, number> = {};
   let maxCount = 0;
   let primary = dates[0];
@@ -108,7 +107,8 @@ export function filterRowsByTimeframe(
 // C1: Mandatory Columns Check
 // ==========================================
 function checkNoBlankColumns(rows: Record<string, unknown>[], sheetName: string, columnMaps: ColumnMaps): AnomalyResult {
-  const isDbTrack = sheetName === "scheduler_logs";
+  // Determine if we are analyzing log entries or standard order line rows
+  const isDbTrack = sheetName === "scheduler_logs" || (rows.length > 0 && "scheduler" in rows[0]);
   const criticalCols = isDbTrack 
     ? ["id", "scheduler", "status", "run_date", "start_time", "end_time"]
     : ["customer_account_number", "loyalty_id", "order_line_number", "order_line_step_code", "points_left_to_redeem", "total_redeemable_points", "load_date"];
@@ -135,14 +135,14 @@ function checkNoBlankColumns(rows: Record<string, unknown>[], sheetName: string,
   return {
     checkId: "C1",
     checkName: "Column Completeness Check",
-    description: "Critical database logging columns must have no blank or NULL values.",
+    description: "Critical data properties must contain no blank or NULL values.",
     status: details.length === 0 ? "pass" : "fail",
     count: details.length,
     total: rows.length * criticalCols.length,
     details: details.slice(0, MAX_DETAILS),
     message: details.length === 0
-      ? "All structural data attributes are fully populated."
-      : `${details.length} blank/NULL values found across mandatory columns.`,
+      ? "All mandatory structural data fields are fully populated."
+      : `${details.length} missing values found across mandatory columns.`,
   };
 }
 
@@ -156,8 +156,9 @@ function checkTotalVsRedeemablePoints(
   columnMaps: ColumnMaps
 ): AnomalyResult {
   const details: AnomalyDetail[] = [];
+  const isDbTrack = oliName === "scheduler_logs" || (oliRows.length > 0 && "scheduler" in oliRows[0]);
   
-  if (oliName !== "scheduler_logs") {
+  if (!isDbTrack) {
     const mpcMap: Record<string, number> = {};
     mpcRows.forEach((row) => {
       const classId = String(row["product_primary_class_id"] ?? "").trim();
@@ -184,7 +185,7 @@ function checkTotalVsRedeemablePoints(
             column,
             cellRef,
             value: sysPts,
-            issue: `Row ${excelRow}: Manual math (${manualPts}) vs System (${sysPts}).`,
+            issue: `Row ${excelRow}: Manual math calculation (${manualPts}) vs System (${sysPts}).`,
           });
         }
       }
@@ -200,8 +201,8 @@ function checkTotalVsRedeemablePoints(
     total: oliRows.length,
     details: details.slice(0, MAX_DETAILS),
     message: details.length === 0
-      ? "Manual calculation tracking balances out perfectly against active data arrays."
-      : `${details.length} calculation imbalances recorded.`,
+      ? "Manual point updates match active baseline system records completely."
+      : `${details.length} points calculation imbalances found.`,
   };
 }
 
@@ -210,11 +211,12 @@ function checkTotalVsRedeemablePoints(
 // ==========================================
 function checkStepCodes(rows: Record<string, unknown>[], sheetName: string, columnMaps: ColumnMaps): AnomalyResult {
   const details: AnomalyDetail[] = [];
+  const isDbTrack = sheetName === "scheduler_logs" || (rows.length > 0 && "scheduler" in rows[0]);
   
-  if (sheetName !== "scheduler_logs") {
+  if (!isDbTrack) {
     rows.forEach((row, idx) => {
       const excelRow = idx + 2;
-      const code = normalizeStepCode(row["order_line_step_code"]);
+      const code = normalizeStepCode(row["order_line_step_code"] || row["order_step_code"]);
       if (!VALID_STEP_CODES.includes(code)) {
         const { column, cellRef } = refFor(sheetName, columnMaps, "order_line_step_code", excelRow);
         details.push({
@@ -223,8 +225,8 @@ function checkStepCodes(rows: Record<string, unknown>[], sheetName: string, colu
           field: "order_line_step_code",
           column,
           cellRef,
-          value: fmtValue(row["order_line_step_code"]),
-          issue: `Row ${excelRow}: invalid code '${row["order_line_step_code"]}'.`,
+          value: fmtValue(row["order_line_step_code"] || row["order_step_code"]),
+          issue: `Row ${excelRow}: invalid step code '${row["order_line_step_code"] || row["order_step_code"]}'.`,
         });
       }
     });
@@ -233,12 +235,12 @@ function checkStepCodes(rows: Record<string, unknown>[], sheetName: string, colu
   return {
     checkId: "C3",
     checkName: "Order Line Step Code Validation",
-    description: "order_line_step_code must be only 'post', 'cncl', or 'open'.",
+    description: "Transaction step codes must be only 'post', 'cncl', or 'open'.",
     status: details.length === 0 ? "pass" : "fail",
     count: details.length,
     total: rows.length,
     details: details.slice(0, MAX_DETAILS),
-    message: details.length === 0 ? "All execution state flags verified successfully." : `${details.length} mismatched flags caught.`,
+    message: details.length === 0 ? "All row execution sequence step flags are valid." : `${details.length} invalid status flags caught.`,
   };
 }
 
@@ -247,13 +249,14 @@ function checkStepCodes(rows: Record<string, unknown>[], sheetName: string, colu
 // ==========================================
 function checkPLTRMatch(oliRows: Record<string, unknown>[], oliName: string, columnMaps: ColumnMaps): AnomalyResult {
   const details: AnomalyDetail[] = [];
+  const isDbTrack = oliName === "scheduler_logs" || (oliRows.length > 0 && "scheduler" in oliRows[0]);
   
-  if (oliName !== "scheduler_logs") {
+  if (!isDbTrack) {
     oliRows.forEach((row, idx) => {
       const excelRow = idx + 2;
-      const sysPLTR = Number(row["points_left_to_redeem"] ?? 0);
-      const totalPts = Number(row["total_redeemable_points"] ?? 0);
-      const redeemedPts = Number(row["points_redeemed"] ?? 0);
+      const sysPLTR = Number(row["points_left_to_redeem"] || row["manual_PLTR"] || 0);
+      const totalPts = Number(row["total_redeemable_points"] || 0);
+      const redeemedPts = Number(row["points_redeemed"] || 0);
       const manualPLTR = totalPts - redeemedPts;
       
       if (manualPLTR !== sysPLTR) {
@@ -265,7 +268,7 @@ function checkPLTRMatch(oliRows: Record<string, unknown>[], oliName: string, col
           column,
           cellRef,
           value: sysPLTR,
-          issue: `Row ${excelRow}: Manual PLTR (${manualPLTR}) vs System PLTR (${sysPLTR}).`,
+          issue: `Row ${excelRow}: Calculated PLTR (${manualPLTR}) vs System Value (${sysPLTR}).`,
         });
       }
     });
@@ -274,12 +277,12 @@ function checkPLTRMatch(oliRows: Record<string, unknown>[], oliName: string, col
   return {
     checkId: "C4",
     checkName: "Points Left to Redeem Match",
-    description: "manual_PLTR (total - redeemed) should equal points_left_to_redeem.",
+    description: "Calculated points left to redeem (total - redeemed) must match table state metrics.",
     status: details.length === 0 ? "pass" : "fail",
     count: details.length,
     total: oliRows.length,
     details: details.slice(0, MAX_DETAILS),
-    message: details.length === 0 ? "Points ledger balances check out accurately." : `${details.length} balancing variance errors noticed.`,
+    message: details.length === 0 ? "Points ledger properties balance out perfectly." : `${details.length} point validation discrepancies noticed.`,
   };
 }
 
@@ -287,15 +290,41 @@ function checkPLTRMatch(oliRows: Record<string, unknown>[], oliName: string, col
 // C5: Business Unit Description Check
 // ==========================================
 function checkBusinessUnitDesc(oliRows: Record<string, unknown>[], sheetName: string, columnMaps: ColumnMaps): AnomalyResult {
+  const details: AnomalyDetail[] = [];
+  const isDbTrack = sheetName === "scheduler_logs" || (oliRows.length > 0 && "scheduler" in oliRows[0]);
+
+  if (!isDbTrack) {
+    oliRows.forEach((row, idx) => {
+      const excelRow = idx + 2;
+      const code = normalizeStepCode(row["order_line_step_code"] || row["order_step_code"]);
+      const desc = row["business_unit_description"] || row["business_unit_desc"];
+      
+      if (code === "post" && isBlank(desc)) {
+        const { column, cellRef } = refFor(sheetName, columnMaps, "business_unit_description", excelRow);
+        details.push({
+          rowIndex: excelRow,
+          sheet: sheetName,
+          field: "business_unit_description",
+          column,
+          cellRef,
+          value: null,
+          issue: `Row ${excelRow}: business_unit_description is missing for posted order.`,
+        });
+      }
+    });
+  }
+
   return {
     checkId: "C5",
     checkName: "Business Unit Description Check",
     description: "business_unit_description must not be blank for posted orders.",
-    status: "pass",
-    count: 0,
+    status: details.length === 0 ? "pass" : "fail",
+    count: details.length,
     total: oliRows.length,
-    details: [],
-    message: "Corporate business unit references align with master structural logs.",
+    details: details.slice(0, MAX_DETAILS),
+    message: details.length === 0 
+      ? "Corporate business unit strings align with operational guidelines." 
+      : `${details.length} missing business descriptions found.`,
   };
 }
 
@@ -303,15 +332,39 @@ function checkBusinessUnitDesc(oliRows: Record<string, unknown>[], sheetName: st
 // C6: Dormant Account Validation
 // ==========================================
 function checkNonEarningDormant(oliRows: Record<string, unknown>[], sheetName: string, columnMaps: ColumnMaps): AnomalyResult {
+  const details: AnomalyDetail[] = [];
+  const isDbTrack = sheetName === "scheduler_logs" || (oliRows.length > 0 && "scheduler" in oliRows[0]);
+
+  if (!isDbTrack) {
+    oliRows.forEach((row, idx) => {
+      const excelRow = idx + 2;
+      const isModified = Number(row["mktcls_modified"] ?? 0) === 1;
+      const isDormant = Number(row["dormant_account_flag"] ?? 0) === 1;
+
+      if (isModified && !isDormant) {
+        const { column, cellRef } = refFor(sheetName, columnMaps, "dormant_account_flag", excelRow);
+        details.push({
+          rowIndex: excelRow,
+          sheet: sheetName,
+          field: "dormant_account_flag",
+          column,
+          cellRef,
+          value:fmtValue(row["dormant_account_flag"]),
+          issue: `Row ${excelRow}: modified tracking indicates dormancy flags should be enabled.`,
+        });
+      }
+    });
+  }
+
   return {
     checkId: "C6",
     checkName: "Non-Earning Records Dormant Check",
-    description: "Non-earning records (mktcls_modified=1) must imply a dormant account.",
-    status: "pass",
-    count: 0,
+    description: "Non-earning metrics (mktcls_modified=1) must match a dormant account state.",
+    status: details.length === 0 ? "pass" : "fail",
+    count: details.length,
     total: oliRows.length,
-    details: [],
-    message: "Account dormancy parameter bounds verified successfully.",
+    details: details.slice(0, MAX_DETAILS),
+    message: details.length === 0 ? "Account modification dormancy rules checked out successfully." : `${details.length} dormancy anomalies found.`,
   };
 }
 
@@ -320,7 +373,8 @@ function checkNonEarningDormant(oliRows: Record<string, unknown>[], sheetName: s
 // ==========================================
 function checkDateOfTransaction(oliRows: Record<string, unknown>[], sheetName: string, columnMaps: ColumnMaps): AnomalyResult {
   const details: AnomalyDetail[] = [];
-  const dateField = sheetName === "scheduler_logs" ? "run_date" : "date_of_transaction";
+  const isDbTrack = sheetName === "scheduler_logs" || (oliRows.length > 0 && "scheduler" in oliRows[0]);
+  const dateField = isDbTrack ? "run_date" : "date_of_transaction";
 
   oliRows.forEach((row, idx) => {
     const excelRow = idx + 2;
@@ -333,7 +387,7 @@ function checkDateOfTransaction(oliRows: Record<string, unknown>[], sheetName: s
         column,
         cellRef,
         value: null,
-        issue: `Row ${excelRow} (cell ${cellRef}) is blank/NULL.`,
+        issue: `Row ${excelRow} field context sequence is missing an explicitly defined timestamp.`,
       });
     }
   });
@@ -344,7 +398,7 @@ function checkDateOfTransaction(oliRows: Record<string, unknown>[], sheetName: s
   return {
     checkId: "C7",
     checkName: "Date of Transaction Check",
-    description: "Ineligible = date_of_transaction IS NULL; Eligible = date_of_transaction IS NOT NULL.",
+    description: "Tracks total active row populations containing fully populated time tracking elements.",
     status: "pass", 
     count: nullCount,
     total: oliRows.length,
@@ -373,7 +427,7 @@ function checkSchedulerCountMatch(
   return {
     checkId: "C8",
     checkName: "Scheduler Count vs Output Count",
-    description: "Tracks active run status execution footprints against the production batch logs.",
+    description: "Tracks verification execution states against active processing system boundaries.",
     status: failureCount === 0 ? "pass" : "fail",
     count: successCount,
     total: oliRows.length,
@@ -386,11 +440,13 @@ function checkSchedulerCountMatch(
 // C9: Run Date Consistency Check
 // ==========================================
 function checkRunDate(oliRows: Record<string, unknown>[], sheetName: string, columnMaps: ColumnMaps): AnomalyResult {
-  const dateField = sheetName === "scheduler_logs" ? "run_date" : "load_date";
+  const isDbTrack = sheetName === "scheduler_logs" || (oliRows.length > 0 && "scheduler" in oliRows[0]);
+  const dateField = isDbTrack ? "run_date" : "load_date";
+  
   const loadDates = oliRows
     .map((r) => r[dateField])
     .filter((d) => !isBlank(d))
-    .map((d) => String(d).trim());
+    .map((d) => String(d).trim().split(" ")[0]); // Truncate down to day format boundary
 
   const primaryDate = getPrimaryDate(loadDates);
   const uniqueDates = [...new Set(loadDates)].sort();
@@ -398,8 +454,8 @@ function checkRunDate(oliRows: Record<string, unknown>[], sheetName: string, col
   const details: AnomalyDetail[] = [];
   oliRows.forEach((row, idx) => {
     const excelRow = idx + 2;
-    const ld = String(row[dateField] ?? "").trim();
-    if (!isBlank(ld) && ld !== primaryDate) {
+    const ld = String(row[dateField] ?? "").trim().split(" ")[0];
+    if (!isBlank(row[dateField]) && ld !== primaryDate) {
       const { column, cellRef } = refFor(sheetName, columnMaps, dateField, excelRow);
       details.push({
         rowIndex: excelRow,
@@ -408,7 +464,7 @@ function checkRunDate(oliRows: Record<string, unknown>[], sheetName: string, col
         column,
         cellRef,
         value: ld,
-        issue: `Row ${excelRow} (cell ${cellRef}) timestamp differs from primary run date '${primaryDate}'.`,
+        issue: `Row ${excelRow} (cell ${cellRef}) timestamp calendar group shifts from primary batch window '${primaryDate}'.`,
       });
     }
   });
@@ -416,14 +472,14 @@ function checkRunDate(oliRows: Record<string, unknown>[], sheetName: string, col
   return {
     checkId: "C9",
     checkName: "Run Date Consistency Check",
-    description: "All records should share the same load/run date.",
+    description: "All rows processed in the incremental pipeline segment should belong to a single day boundary.",
     status: details.length > 0 ? "warning" : "pass",
     count: details.length,
     total: oliRows.length,
     details: details.slice(0, MAX_DETAILS),
     message: details.length === 0
-      ? `All records match clean sequence tracking timeline: ${primaryDate}.`
-      : `${details.length} variances found. Unique periods: ${uniqueDates.join(", ")}`,
+      ? `All records map to a clean unified execution timeline date: ${primaryDate}.`
+      : `${details.length} parsing variances found. Active periods: ${uniqueDates.join(", ")}`,
   };
 }
 

@@ -37,8 +37,12 @@ cd C:\project\anomaly-checker
 npm install
 
 # 3. Configure your key
-#    Copy .env.example to .env.local and paste your Groq key:
+#    Copy .env.example to .env.local and paste your values:
 #    GROQ_API_KEY=gsk_...
+#    SUPABASE_SERVICE_ROLE_KEY=...
+#    EMAIL_USER=...
+#    EMAIL_PASS=...
+#    CRON_SECRET=...
 #    (.env.local is git-ignored)
 
 # 4. Start the dev server
@@ -51,6 +55,30 @@ Open http://localhost:3000 and upload your `Master_Tables.xlsx`.
 > embedding model (~90 MB) downloads once and is cached. That first request can take
 > 10–60s; subsequent calls are fast. If the model can't load, retrieval automatically
 > falls back to keyword search so chat still works.
+
+## Deploying to Vercel
+
+1. Push this repository to GitHub or another Git provider.
+2. Connect the repo in the Vercel dashboard.
+3. Set the following environment variables in Vercel (do not upload `.env.local`):
+   - `GROQ_API_KEY`
+   - `GROQ_MODEL`
+   - `EMBEDDING_MODEL`
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `NEXT_PUBLIC_APP_URL`
+   - `CRON_SECRET`
+   - `EMAIL_HOST`
+   - `EMAIL_PORT`
+   - `EMAIL_USER`
+   - `EMAIL_PASS`
+   - `EMAIL_RECEIVER`
+
+4. Deploy using Vercel's default settings. The build command is `npm run build`.
+
+> Note: On Vercel, the persisted `.rag/index.json` file is stored in a temporary writeable
+> directory at runtime. The local embedding model and server-side operations may add
+> startup latency on first request.
 
 Recommended VS Code extensions: **ESLint**, **Tailwind CSS IntelliSense**, **Prettier**.
 
@@ -101,3 +129,16 @@ See `knowledge/anomaly-rules.md` for full definitions and remediation guidance.
 | `GROQ_MODEL` | Groq chat model | `llama-3.3-70b-versatile` |
 | `EMBEDDING_MODEL` | Local embedding model | `Xenova/all-MiniLM-L6-v2` |
 | `VECTOR_STORE_PATH` | Persisted vector index path | `.rag/index.json` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL for data access | — |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | — |
+| `NEXT_PUBLIC_APP_URL` | App base URL for generated links | `http://localhost:3000` |
+| `CRON_SECRET` | Secret used by cron/webhook route | — |
+| `EMAIL_HOST` | SMTP host for email delivery | `smtp.gmail.com` |
+| `EMAIL_PORT` | SMTP port | `465` |
+| `EMAIL_USER` | SMTP login user | — |
+| `EMAIL_PASS` | SMTP login password | — |
+| `EMAIL_RECEIVER` | Default email recipient | — |
+| `SMTP_HOST` | Optional SMTP host alias | — |
+| `SMTP_PORT` | Optional SMTP port alias | — |
+| `SMTP_USER` | Optional SMTP user alias | — |
+| `SMTP_PASS` | Optional SMTP pass alias | — |

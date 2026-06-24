@@ -46,6 +46,7 @@ export interface AnalysisReport {
     warnings: number;
   };
   checks: AnomalyResult[];
+  rowCount?: number;
   rawSheetsData?: any; //  Added to safely transport parsed excel arrays to Recharts UI
 }
 

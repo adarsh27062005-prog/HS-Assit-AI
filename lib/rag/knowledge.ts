@@ -10,7 +10,7 @@ export interface KnowledgeChunk {
 // Reads every markdown file in /knowledge and splits it into chunks on H2 (## ) headings,
 // which keeps each anomaly rule / dictionary section as a self-contained retrievable unit.
 export async function loadKnowledgeChunks(): Promise<KnowledgeChunk[]> {
-  const dir = path.join(process.cwd(), "knowledge");
+  const dir = path.join(/* turbopackIgnore: true */ process.cwd(), "knowledge");
   let files: string[] = [];
   try {
     files = (await fs.readdir(dir)).filter((f) => f.toLowerCase().endsWith(".md"));

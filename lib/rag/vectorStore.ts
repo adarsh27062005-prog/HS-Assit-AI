@@ -1,4 +1,5 @@
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
 
 export interface StoredChunk {
@@ -15,7 +16,9 @@ export interface VectorIndex {
 
 function storePath(): string {
   const rel = process.env.VECTOR_STORE_PATH || ".rag/index.json";
-  return path.isAbsolute(rel) ? rel : path.join(process.cwd(), rel);
+  return path.isAbsolute(rel)
+    ? rel
+    : path.join(/* turbopackIgnore: true */ process.cwd(), rel);
 }
 
 export async function loadIndex(): Promise<VectorIndex | null> {
