@@ -33,7 +33,7 @@ async function buildIndex(): Promise<VectorIndex> {
   try {
     await saveIndex(index);
   } catch (err) {
-    console.error("Could not persist vector index (continuing in-memory):", err);
+    console.warn("Could not persist vector index (continuing running safely in-memory):", err);
   }
   return index;
 }
