@@ -183,7 +183,8 @@ export async function POST(request: NextRequest) {
       warnings: checks.filter((c) => c.status === "warning" || c.status === "info").length,
     };
 
-    const report: AnalysisReport & { rawSheetsData: any } = {
+    // Explicitly add rowCount to the inline type mapping definition to satisfy the TypeScript compiler
+    const report: AnalysisReport & { rowCount: number; rawSheetsData: any } = {
       filename,
       analyzedAt: new Date().toISOString(),
       runDate: targetAuditDate || "2026",
